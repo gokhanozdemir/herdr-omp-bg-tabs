@@ -1,0 +1,4 @@
+/herdr-omp-agent-state.ts
+/omp-herdr/
+*.log
+.DS_Store
