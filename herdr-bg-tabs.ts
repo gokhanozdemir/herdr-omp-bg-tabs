@@ -7,10 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 const workspaceId = process.env.HERDR_WORKSPACE_ID;
-const enabled =
-  process.env.HERDR_ENV === "1" &&
-  Boolean(workspaceId) &&
-  process.env.OMPCODE !== "1";
+const enabled = process.env.HERDR_ENV === "1" && Boolean(workspaceId);
 const logDirectory = path.join(os.tmpdir(), "omp-herdr");
 const jobs = new Map();
 const thresholdMs = 60_000;
