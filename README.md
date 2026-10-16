@@ -1,12 +1,23 @@
 # herdr-bg-tabs
 
-OMP extension that opens a background (unfocused) Herdr tab showing live output of long-running OMP `bash` tool calls. Your current tab stays focused; slow builds, test runs, and servers get their own tab you can glance at.
+OMP extension that streams the output of long-running OMP `bash` tool calls, line by line, into unfocused Herdr panes. Your current tab stays focused; slow builds, test runs, and servers show up in background tabs you can glance at.
+
+Five parallel bash calls from one agent: a 2×2 jobs tab, with the fifth job overflowing to the next tab. Pane names are the agent's intents.
+
+![Jobs streaming live in a 2×2 grid](docs/screenshots/grid-running.png)
+
+When jobs settle, each pane ends with `[omp] finished` / `failed (exit N)` and its label gets `✓` or `✗`:
+
+![Finished jobs with ✓ and ✗ labels](docs/screenshots/grid-done.png)
+
+Screenshots are rendered from live `herdr pane read` output of a real OMP session.
 
 ## Requirements
 
 - OMP (oh-my-pi coding agent) with extension discovery enabled (the default).
 - `herdr` CLI on `PATH`.
 - OMP running inside a Herdr workspace, so Herdr exports `HERDR_ENV=1` and `HERDR_WORKSPACE_ID`.
+- `tail` with `-F` (macOS and Linux both have it). Works with any login shell, including fish.
 
 ## Install
 
@@ -50,14 +61,27 @@ echo "HERDR_ENV=$HERDR_ENV"; [ -n "$HERDR_WORKSPACE_ID" ] && echo workspace set;
 
 For every OMP `bash` tool call:
 
-1. **Tab timing**
+1. **Timing**
    - Immediately, if the call uses `async: true`, `timeout: 0`, or a `name` (long-lived service).
-   - Otherwise after **60 s** if the command is still running. Fast commands never get a tab.
-2. **Tab contents** — a new unfocused tab in the current workspace, opened in the session's working directory, labeled `omp: <first 34 chars of command>`. It redraws `$TMPDIR/omp-herdr/<toolCallId>.log` every second.
-3. **Completion** — appends `[omp] finished (exit N)` or `[omp] failed (exit N)` and renames the tab with a `✓` or `✗` prefix. If the job continues in the background, the log notes it and points to `proc://<jobId>`.
-4. **Errors** — Herdr failures appear as a warning toast (`Herdr log tab unavailable: …`) and never affect the bash call itself.
+   - Otherwise once the command has run for the delay (default **60 s**). Fast commands never get a pane.
+2. **Placement** — jobs of one agent share a tab laid out as a grid (default 2×2): columns fill first, then rows. When the tab is full, the next job opens a new tab (`#2`, `#3`, …). Subagents get their own tabs. The grid shrinks when the agent's tab area cannot fit panes of at least 40×8 cells.
+3. **Names** — chosen by the dispatching agent:
+   - pane: the bash call's intent (e.g. `Running unit tests`), else the service `name`, else `$ <command>`;
+   - tab: `omp: <session name>`, or `omp: <subagent id>` for subagents.
+4. **Contents** — the pane runs `tail -n +1 -F $TMPDIR/omp-herdr/<toolCallId>.log`. The log starts with the intent and command and grows line by line. OMP only reports a rolling preview of output; if more output scrolled by between two updates than the preview holds, the log marks it with `[omp] … output skipped …`.
+5. **Completion** — appends `[omp] finished`, `failed`, or `cancelled` (with the exit code when known) and prefixes the pane label with `✓` or `✗`. Async jobs note `continues in background; inspect proc://<jobId>` and are marked when the background job settles.
+6. **Errors** — Herdr failures appear once as a warning toast (`Herdr log pane unavailable: …`). The extension only observes tool execution; it never blocks, delays, or alters a bash call.
 
 There is nothing to invoke; usage is just running OMP normally.
+
+## Configuration
+
+Environment variables, read when OMP starts:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OMP_HERDR_TAB_GRID` | `2x2` | Max panes per tab as `COLSxROWS` (`2*2` also accepted). `1x1` = one tab per job. `auto` = as many as fit the screen. |
+| `OMP_HERDR_TAB_DELAY_MS` | `60000` | How long a plain bash call runs before it gets a pane. `0` = every call. |
 
 ## Disable
 
@@ -77,24 +101,25 @@ Pick one:
 
 ## Cleanup and privacy
 
-- Tabs are not closed automatically; close them in Herdr when done.
+- Tabs and panes are not closed automatically; close them in Herdr when done. Closing a pane or tab is safe: the next job opens a fresh tab.
 - Log files under `$TMPDIR/omp-herdr/` are not deleted; they contain full command output. Remove with `rm -rf "${TMPDIR:-/tmp}/omp-herdr"`.
-- Tab labels include the start of each command — avoid inline secrets in commands.
+- Labels and log headers include the intent and start of each command — avoid inline secrets in commands.
 
 ## Limits
 
-- Only the `bash` tool is monitored; subagents and other background work are not surfaced.
-- The tab shows snapshots OMP emits. For async jobs, once OMP stops emitting updates the tab keeps the last snapshot plus the `proc://` reference; inspect the job through OMP.
+- Only the `bash` tool is monitored.
+- The log reflects OMP's output preview, not the raw stream: very fast output can be skipped (marked in the log), and repetitive output that is identical across updates may be under-reported, never duplicated.
 - A local convenience, not job supervision: commands are never rewritten and OMP's job manager is never polled.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| No tabs ever | activation conditions above; `/extensions` shows it enabled; `herdr` on `PATH` |
-| Tab only for some commands | expected: needs 60 s runtime, or `async`/`timeout: 0`/`name` |
+| No panes ever | activation conditions above; `/extensions` shows it enabled; `herdr` on `PATH` |
+| Pane only for some commands | expected: needs the delay, or `async`/`timeout: 0`/`name` |
 | Warning toast | run `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus` manually to see the Herdr error |
-| Tab stays blank | log file is written on first output update; it shows `Waiting for command output…` until then |
+| Pane shows a shell prompt only | the `tail` command was not delivered; read the pane with `herdr pane read <pane> --source recent-unwrapped` |
+| Grid smaller than configured | the screen cannot fit 40×8-cell panes at that grid; widen the window or lower `OMP_HERDR_TAB_GRID` |
 
 ## License
 
