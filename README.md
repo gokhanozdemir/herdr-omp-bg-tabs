@@ -2,7 +2,19 @@
 
 OMP extension that streams the output of long-running OMP `bash` tool calls, line by line, into unfocused Herdr panes. Your current tab stays focused; slow builds, test runs, and servers show up in background tabs you can glance at.
 
-Five parallel bash calls from one agent: a 2×2 jobs tab, with the fifth job overflowing to the next tab. Pane names are the agent's intents.
+## The problem it solves
+
+When an OMP agent runs a slow command (test suite, build, dev server, migration), the output is only visible inside the agent's own transcript, as a rolling preview. You cannot watch it scroll while you keep working elsewhere in Herdr, and several parallel commands are impossible to follow.
+
+This extension gives every long-running call its own live log pane, without moving your focus:
+
+- **Line-by-line output**, scrolling like a normal terminal (`tail -F` on a log that only grows), not a redrawn snapshot.
+- **Grouped, not scattered**: one agent's jobs share a tab as a grid (default 2×2) instead of one tab per job.
+- **Named by the agent**: panes carry the agent's own description of the call (`Running backend unit tests`), not a truncated shell command.
+- **Outcome at a glance**: `✓` / `✗` on the pane label and an `[omp] finished` / `failed (exit N)` line when the job ends.
+- **Zero risk to the agent**: it only observes tool events, swallows its own errors, and never blocks, delays or alters a bash call.
+
+Five parallel bash calls from one agent: a 2×2 jobs tab, with the fifth job overflowing to the next tab.
 
 ![Jobs streaming live in a 2×2 grid](docs/screenshots/grid-running.png)
 
@@ -11,6 +23,13 @@ When jobs settle, each pane ends with `[omp] finished` / `failed (exit N)` and i
 ![Finished jobs with ✓ and ✗ labels](docs/screenshots/grid-done.png)
 
 Screenshots are rendered from live `herdr pane read` output of a real OMP session.
+
+## Quick start
+
+1. Run OMP inside a Herdr pane (Herdr sets `HERDR_ENV=1` and `HERDR_WORKSPACE_ID`).
+2. Install the extension (see [Install](#install)) and restart OMP.
+3. Ask the agent to run anything slow, e.g. *"run `sleep 70; echo done` in bash"*. After 60 s a `omp: <session>` tab appears in the background and streams the output.
+4. To see panes right away, start OMP with `OMP_HERDR_TAB_DELAY_MS=0`. To change the grid, set `OMP_HERDR_TAB_GRID` (see [Configuration](#configuration)).
 
 ## Requirements
 
@@ -21,7 +40,9 @@ Screenshots are rendered from live `herdr pane read` output of a real OMP sessio
 
 ## Install
 
-Copy the single file into your OMP user extensions directory:
+Pick one method, then **restart OMP** (the extension is discovered automatically; no config entry needed).
+
+**Download the file**
 
 ```sh
 mkdir -p ~/.omp/agent/extensions
@@ -29,18 +50,28 @@ curl -fsSL https://raw.githubusercontent.com/gokhanozdemir/herdr-omp-bg-tabs/mai
   -o ~/.omp/agent/extensions/herdr-bg-tabs.ts
 ```
 
-Or clone and copy/symlink:
+**Or clone and symlink** (updates with `git pull`)
 
 ```sh
 git clone https://github.com/gokhanozdemir/herdr-omp-bg-tabs.git
+mkdir -p ~/.omp/agent/extensions
 ln -s "$PWD/herdr-omp-bg-tabs/herdr-bg-tabs.ts" ~/.omp/agent/extensions/herdr-bg-tabs.ts
 ```
 
 Named profile (`omp --profile <name>`): use `~/.omp/profiles/<name>/agent/extensions/` instead. If `PI_CODING_AGENT_DIR` is set, use `$PI_CODING_AGENT_DIR/extensions/`.
 
-Restart OMP. The extension is discovered automatically — no config entry needed.
-
 Keep the file separate from `herdr-omp-agent-state.ts`; Herdr overwrites that file.
+
+**Verify**
+
+```sh
+ls ~/.omp/agent/extensions/herdr-bg-tabs.ts   # file is in place
+echo "HERDR_ENV=$HERDR_ENV"                   # must print 1
+```
+
+After a restart, a long bash call writes `$TMPDIR/omp-herdr/<toolCallId>.log` whose first line is the agent's description, followed by `[omp] $ <command>`. If that log appears but no pane does, see [Troubleshooting](#troubleshooting).
+
+**Update**: re-run the `curl` command (or `git pull` for the symlink method) and restart OMP.
 
 ## When it is active
 
